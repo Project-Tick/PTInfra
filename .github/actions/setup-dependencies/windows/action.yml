@@ -105,6 +105,7 @@ runs:
           qt6-networkauth:p
           qt6-positioning:p
           qt6-serialport:p
+          qt6-5compat:p
 
     - name: Install NSIS (MSVC)
       if: ${{ runner.os == 'Windows' && inputs.msystem == '' }}
