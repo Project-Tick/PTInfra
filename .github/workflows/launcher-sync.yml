@@ -145,15 +145,22 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Summarize decision
+        env:
+          SUMMARY_LATEST_TAG: ${{ steps.discover.outputs.latest_tag }}
+          SUMMARY_LATEST_COMMIT: ${{ steps.discover.outputs.latest_commit }}
+          SUMMARY_BRANCH: ${{ env.SOURCE_DEFAULT_BRANCH }}
+          SUMMARY_RELEASE_KIND: ${{ steps.decide.outputs.release_kind }}
+          SUMMARY_BUILD_REF: ${{ steps.decide.outputs.build_ref }}
+          SUMMARY_SHOULD_BUILD: ${{ steps.decide.outputs.should_build }}
         shell: bash
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           ## Upstream inspection
-          - Latest tag: `${{ steps.discover.outputs.latest_tag || 'none' }}`
-          - Latest commit on `${{ env.SOURCE_DEFAULT_BRANCH }}`: `${{ steps.discover.outputs.latest_commit }}`
-          - Selected kind: `${{ steps.decide.outputs.release_kind || 'none' }}`
-          - Selected ref: `${{ steps.decide.outputs.build_ref || 'none' }}`
-          - Build required: `${{ steps.decide.outputs.should_build }}`
+          - Latest tag: `${SUMMARY_LATEST_TAG:-none}`
+          - Latest commit on `${SUMMARY_BRANCH:-unknown}`: `${SUMMARY_LATEST_COMMIT:-none}`
+          - Selected kind: `${SUMMARY_RELEASE_KIND:-none}`
+          - Selected ref: `${SUMMARY_BUILD_REF:-none}`
+          - Build required: `${SUMMARY_SHOULD_BUILD:-false}`
           EOF
 
   build:
