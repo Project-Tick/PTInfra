@@ -28,6 +28,7 @@ on:
 permissions:
   actions: write
   contents: read
+  packages: write
 
 concurrency:
   group: launcher-sync
