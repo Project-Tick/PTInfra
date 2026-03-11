@@ -1,0 +1,257 @@
+name: Launcher Sync
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force a build even if the tracked ref did not change
+        required: false
+        default: false
+        type: boolean
+      release-kind:
+        description: What to build
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - tag
+          - commit
+      ref:
+        description: Optional tag, branch, or commit SHA override
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: launcher-sync
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY_URL: https://gitlab.com/project-tick/core/projt-launcher.git
+  SOURCE_DEFAULT_BRANCH: main
+  LAST_TAG_VARIABLE: LAST_PROJT_LAUNCHER_TAG
+  LAST_COMMIT_VARIABLE: LAST_PROJT_LAUNCHER_COMMIT
+  TAG_REMOTE_ROOT: /var/www/ftp/Project-Tick/ProjT-Launcher/releases/download
+  COMMIT_REMOTE_ROOT: /var/www/ftp/Project-Tick/ProjT-Launcher/releases/commitftp
+
+jobs:
+  inspect-upstream:
+    name: Inspect upstream state
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.decide.outputs.should_build }}
+      release-kind: ${{ steps.decide.outputs.release_kind }}
+      build-ref: ${{ steps.decide.outputs.build_ref }}
+      ref-name: ${{ steps.decide.outputs.ref_name }}
+      remote-path: ${{ steps.decide.outputs.remote_path }}
+      state-value: ${{ steps.decide.outputs.state_value }}
+    steps:
+      - name: Checkout workflow repository
+        uses: actions/checkout@v6
+
+      - name: Discover latest upstream refs
+        id: discover
+        shell: bash
+        run: ./.github/scripts/discover-projt-launcher-ref.sh "${SOURCE_REPOSITORY_URL}" "${SOURCE_DEFAULT_BRANCH}"
+
+      - name: Decide whether to build
+        id: decide
+        env:
+          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' }}
+          REQUESTED_KIND: ${{ github.event.inputs.release-kind || 'auto' }}
+          REQUESTED_REF: ${{ github.event.inputs.ref || '' }}
+          LAST_TAG: ${{ vars.LAST_PROJT_LAUNCHER_TAG }}
+          LAST_COMMIT: ${{ vars.LAST_PROJT_LAUNCHER_COMMIT }}
+          LATEST_TAG: ${{ steps.discover.outputs.latest_tag }}
+          LATEST_COMMIT: ${{ steps.discover.outputs.latest_commit }}
+        shell: bash
+        run: |
+          should_build=false
+          release_kind=""
+          build_ref=""
+          ref_name=""
+          remote_path=""
+          state_value=""
+
+          sanitize_ref_name() {
+            printf '%s' "$1" | tr '/:' '--'
+          }
+
+          if [[ -n "$REQUESTED_REF" ]]; then
+            build_ref="$REQUESTED_REF"
+            should_build=true
+            if [[ "$REQUESTED_KIND" == "tag" ]]; then
+              release_kind="tag"
+              ref_name="$REQUESTED_REF"
+            elif [[ "$REQUESTED_KIND" == "commit" ]]; then
+              release_kind="commit"
+              ref_name="$(printf '%s' "$REQUESTED_REF" | cut -c1-12)"
+            elif [[ -n "$LATEST_TAG" && "$REQUESTED_REF" == "$LATEST_TAG" ]]; then
+              release_kind="tag"
+              ref_name="$REQUESTED_REF"
+            else
+              release_kind="commit"
+              ref_name="$(printf '%s' "$REQUESTED_REF" | cut -c1-12)"
+            fi
+          elif [[ "$REQUESTED_KIND" == "tag" ]]; then
+            if [[ -n "$LATEST_TAG" ]]; then
+              build_ref="$LATEST_TAG"
+              ref_name="$LATEST_TAG"
+              release_kind="tag"
+              [[ "$FORCE_BUILD" == "true" || "$LATEST_TAG" != "$LAST_TAG" ]] && should_build=true
+            fi
+          elif [[ "$REQUESTED_KIND" == "commit" ]]; then
+            build_ref="$LATEST_COMMIT"
+            ref_name="$(printf '%s' "$LATEST_COMMIT" | cut -c1-12)"
+            release_kind="commit"
+            [[ "$FORCE_BUILD" == "true" || "$LATEST_COMMIT" != "$LAST_COMMIT" ]] && should_build=true
+          else
+            if [[ -n "$LATEST_TAG" && "$LATEST_TAG" != "$LAST_TAG" ]]; then
+              build_ref="$LATEST_TAG"
+              ref_name="$LATEST_TAG"
+              release_kind="tag"
+              should_build=true
+            elif [[ "$FORCE_BUILD" == "true" || "$LATEST_COMMIT" != "$LAST_COMMIT" ]]; then
+              build_ref="$LATEST_COMMIT"
+              ref_name="$(printf '%s' "$LATEST_COMMIT" | cut -c1-12)"
+              release_kind="commit"
+              should_build=true
+            fi
+          fi
+
+          if [[ "$release_kind" == "tag" ]]; then
+            remote_path="${TAG_REMOTE_ROOT}/$(sanitize_ref_name "$ref_name")"
+            state_value="$build_ref"
+          elif [[ "$release_kind" == "commit" ]]; then
+            remote_path="${COMMIT_REMOTE_ROOT}/$(sanitize_ref_name "$ref_name")"
+            state_value="$build_ref"
+          fi
+
+          {
+            echo "should_build=$should_build"
+            echo "release_kind=$release_kind"
+            echo "build_ref=$build_ref"
+            echo "ref_name=$ref_name"
+            echo "remote_path=$remote_path"
+            echo "state_value=$state_value"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize decision
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Upstream inspection
+          - Latest tag: `${{ steps.discover.outputs.latest_tag || 'none' }}`
+          - Latest commit on `${{ env.SOURCE_DEFAULT_BRANCH }}`: `${{ steps.discover.outputs.latest_commit }}`
+          - Selected kind: `${{ steps.decide.outputs.release_kind || 'none' }}`
+          - Selected ref: `${{ steps.decide.outputs.build_ref || 'none' }}`
+          - Build required: `${{ steps.decide.outputs.should_build }}`
+          EOF
+
+  build:
+    name: Build upstream release
+    needs: inspect-upstream
+    if: ${{ needs.inspect-upstream.outputs.should-build == 'true' }}
+    uses: ./.github/workflows/ci-launcher.yml
+    with:
+      build-type: Release
+      source-repository-url: ${{ env.SOURCE_REPOSITORY_URL }}
+      source-directory: source
+      ref: ${{ needs.inspect-upstream.outputs.build-ref }}
+    secrets: inherit
+
+  deploy:
+    name: Deploy artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - inspect-upstream
+      - build
+    if: ${{ needs.inspect-upstream.outputs.should-build == 'true' }}
+    steps:
+      - name: Checkout workflow repository
+        uses: actions/checkout@v6
+
+      - name: Download packaged release artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: ProjTLauncher-*
+          path: artifacts
+
+      - name: Download Linux package artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: cpack-*
+          path: artifacts
+
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          FTP_SSH_KEY: ${{ secrets.FTP_SSH_PRIVATE_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$FTP_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Trust deployment host
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_SSH_PORT || '22' }}
+        run: |
+          ssh-keyscan -p "$FTP_PORT" -H "$FTP_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Rsync artifacts to FTP server
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PORT: ${{ secrets.FTP_SSH_PORT || '22' }}
+          REMOTE_PATH: ${{ needs.inspect-upstream.outputs.remote-path }}
+        run: |
+          ssh -p "$FTP_PORT" "$FTP_USER@$FTP_HOST" "mkdir -p '$REMOTE_PATH'"
+          ./.github/scripts/rsync-release-artifacts.sh artifacts "$FTP_HOST" "$FTP_USER" "$REMOTE_PATH" "$FTP_PORT"
+
+  update-state:
+    name: Update tracked ref
+    runs-on: ubuntu-latest
+    needs:
+      - inspect-upstream
+      - deploy
+    if: ${{ needs.inspect-upstream.outputs.should-build == 'true' && needs.deploy.result == 'success' }}
+    steps:
+      - name: Update repository variable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_KIND: ${{ needs.inspect-upstream.outputs.release-kind }}
+          STATE_VALUE: ${{ needs.inspect-upstream.outputs.state-value }}
+          TAG_VARIABLE: ${{ env.LAST_TAG_VARIABLE }}
+          COMMIT_VARIABLE: ${{ env.LAST_COMMIT_VARIABLE }}
+        shell: bash
+        run: |
+          variable_name="$COMMIT_VARIABLE"
+          if [[ "$RELEASE_KIND" == "tag" ]]; then
+            variable_name="$TAG_VARIABLE"
+          fi
+
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/variables/${variable_name}" >/dev/null 2>&1; then
+            gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/actions/variables/${variable_name}" \
+              -f name="$variable_name" \
+              -f value="$STATE_VALUE"
+          else
+            gh api \
+              --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/${GITHUB_REPOSITORY}/actions/variables" \
+              -f name="$variable_name" \
+              -f value="$STATE_VALUE"
+          fi
