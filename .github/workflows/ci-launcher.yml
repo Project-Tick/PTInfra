@@ -197,72 +197,9 @@ jobs:
             cmake-preset: windows_mingw
             msystem: CLANGARM64
             vcvars-arch: arm64
-          - os: macos-14
-            artifact-name: macOS-14-universal
-            cmake-preset: macos_universal
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-15
-            artifact-name: macOS-15-universal
-            cmake-preset: macos_universal
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-15-intel
-            artifact-name: macOS-15-intel-universal
-            cmake-preset: macos_universal
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-26
-            artifact-name: macOS-26-universal
-            cmake-preset: macos_universal
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-15
-            artifact-name: macOS-15-arm64
-            cmake-preset: macos_arm64
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-15-intel
-            artifact-name: macOS-15-intel
-            cmake-preset: macos_intel
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-26
-            artifact-name: macOS-26-arm64
-            cmake-preset: macos_arm64
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
           - os: macos-26
             artifact-name: macOS-universal
             cmake-preset: macos_universal
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-15
-            artifact-name: macOS-intel
-            cmake-preset: macos_intel
-            macosx-deployment-target: 12.0
-            qt-architecture: clang_64
-            qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat
-            qt-version: 6.10.2
-          - os: macos-26
-            artifact-name: macOS-arm64
-            cmake-preset: macos_arm64
             macosx-deployment-target: 12.0
             qt-architecture: clang_64
             qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qtwebengine qtwebchannel qt5compat

@@ -156,11 +156,11 @@ jobs:
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           ## Upstream inspection
-          - Latest tag: `${SUMMARY_LATEST_TAG:-none}`
-          - Latest commit on `${SUMMARY_BRANCH:-unknown}`: `${SUMMARY_LATEST_COMMIT:-none}`
-          - Selected kind: `${SUMMARY_RELEASE_KIND:-none}`
-          - Selected ref: `${SUMMARY_BUILD_REF:-none}`
-          - Build required: `${SUMMARY_SHOULD_BUILD:-false}`
+          - Latest tag: ${SUMMARY_LATEST_TAG:-none}
+          - Latest commit on ${SUMMARY_BRANCH:-unknown}: ${SUMMARY_LATEST_COMMIT:-none}
+          - Selected kind: ${SUMMARY_RELEASE_KIND:-none}
+          - Selected ref: ${SUMMARY_BUILD_REF:-none}
+          - Build required: ${SUMMARY_SHOULD_BUILD:-false}
           EOF
 
   build:
