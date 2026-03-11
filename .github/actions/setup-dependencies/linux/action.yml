@@ -137,5 +137,9 @@ runs:
         done
 
         if command -v apt-get >/dev/null 2>&1; then
-          sudo apt -y install libopengl0
+          SUDO=""
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          fi
+          $SUDO apt -y install libopengl0
         fi

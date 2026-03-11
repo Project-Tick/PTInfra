@@ -288,16 +288,20 @@ jobs:
       - name: Install base tools (Linux containers)
         if: ${{ runner.os == 'Linux' }}
         run: |
+          SUDO=""
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          fi
           if command -v apt-get >/dev/null 2>&1; then
-            apt-get update
-            apt-get install -y --no-install-recommends ca-certificates curl git tar xz-utils gzip bzip2
+            $SUDO apt-get update
+            $SUDO apt-get install -y --no-install-recommends ca-certificates curl git tar xz-utils gzip bzip2
           elif command -v dnf >/dev/null 2>&1; then
-            dnf -y install ca-certificates curl git tar xz gzip bzip2
-            update-ca-trust || true
+            $SUDO dnf -y install ca-certificates curl git tar xz gzip bzip2
+            $SUDO update-ca-trust || true
           elif command -v zypper >/dev/null 2>&1; then
-            zypper --non-interactive refresh
-            zypper --non-interactive install ca-certificates curl git tar xz gzip bzip2
-            update-ca-certificates || true
+            $SUDO zypper --non-interactive refresh
+            $SUDO zypper --non-interactive install ca-certificates curl git tar xz gzip bzip2
+            $SUDO update-ca-certificates || true
           fi
 
       - name: Clone Project Tick Launcher repository
