@@ -41,6 +41,10 @@ on:
         description: Type of build (Debug or Release)
         type: string
         default: Debug
+      force-prepare-yes:
+        description: Force prepare job to enable tests/builds (used by release workflow)
+        type: boolean
+        default: false
       version:
         description: Launcher version
         required: true
@@ -134,82 +138,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            container: ubuntu:24.04
-            artifact-name: Linux-ubuntu-24.04
+            artifact-name: Linux
             cmake-preset: linux
             qt-architecture: linux_gcc_64
             qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport
             qt-version: 6.10.2
-            enable-deb: true
-            enable-rpm: true
-            enable-source-rpm: false
-            enable-appimage: true
-          - os: ubuntu-24.04
-            container: ubuntu:22.04
-            artifact-name: Linux-ubuntu-22.04
-            cmake-preset: linux
-            qt-architecture: linux_gcc_64
-            qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport
-            qt-version: 6.10.2
-            enable-deb: true
-            enable-rpm: false
-            enable-source-rpm: false
-            enable-appimage: false
-          - os: ubuntu-24.04
-            container: debian:bookworm
-            artifact-name: Linux-debian-bookworm
-            cmake-preset: linux
-            qt-architecture: linux_gcc_64
-            qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport
-            qt-version: 6.10.2
-            enable-deb: true
-            enable-rpm: false
-            enable-source-rpm: false
-            enable-appimage: false
-          - os: ubuntu-24.04
-            container: debian:trixie
-            artifact-name: Linux-debian-trixie
-            cmake-preset: linux
-            qt-architecture: linux_gcc_64
-            qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport
-            qt-version: 6.10.2
-            enable-deb: true
-            enable-rpm: false
-            enable-source-rpm: false
-            enable-appimage: false
-          - os: ubuntu-24.04
-            container: fedora:40
-            artifact-name: Linux-fedora-40
-            cmake-preset: linux
-            qt-architecture: linux_gcc_64
-            qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport
-            qt-version: 6.10.2
-            enable-deb: false
-            enable-rpm: true
-            enable-source-rpm: true
-            enable-appimage: false
-          - os: ubuntu-24.04
-            container: opensuse/leap:15.6
-            artifact-name: Linux-opensuse-leap-15.6
-            cmake-preset: linux
-            qt-architecture: linux_gcc_64
-            qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport
-            qt-version: 6.10.2
-            enable-deb: false
-            enable-rpm: true
-            enable-source-rpm: false
-            enable-appimage: false
           - os: ubuntu-24.04-arm
-            container: ubuntu:24.04
-            artifact-name: Linux-ubuntu-24.04-arm64
+            artifact-name: Linux-aarch64
             cmake-preset: linux
             qt-architecture: linux_gcc_arm64
             qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport
             qt-version: 6.10.2
-            enable-deb: true
-            enable-rpm: false
-            enable-source-rpm: false
-            enable-appimage: false
           - os: windows-2022
             artifact-name: Windows-MSVC
             cmake-preset: windows_msvc
@@ -365,11 +304,12 @@ jobs:
         shell: bash
         run: |
           rm -rf "${SOURCE_DIRECTORY}"
-          git clone "${SOURCE_REPOSITORY_URL}" "${SOURCE_DIRECTORY}"
+          git init "${SOURCE_DIRECTORY}"
           cd "${SOURCE_DIRECTORY}"
-          git fetch --force --tags origin
-          git checkout --force "${CHECKOUT_REF}"
-          git submodule update --init --recursive
+          git remote add origin "${SOURCE_REPOSITORY_URL}"
+          git fetch --depth 1 origin "${CHECKOUT_REF}"
+          git checkout --force FETCH_HEAD
+          git submodule update --init --recursive --depth 1
 
       - name: Setup Dependencies
         id: setup-dependencies
@@ -425,47 +365,8 @@ jobs:
         run: |
           echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Install packaging tools
-        if: ${{ runner.os == 'Linux' && env.BUILD_TYPE == 'Release' && (matrix.enable-deb || matrix.enable-rpm || matrix.enable-source-rpm) }}
-        run: |
-          if command -v apt-get >/dev/null 2>&1; then
-            apt-get update
-            apt-get install -y --no-install-recommends rpm
-          elif command -v dnf >/dev/null 2>&1; then
-            dnf -y install rpm-build
-          elif command -v zypper >/dev/null 2>&1; then
-            zypper --non-interactive install rpm-build
-          fi
-
-      - name: CPack (DEB)
-        if: ${{ runner.os == 'Linux' && matrix.enable-deb && env.BUILD_TYPE == 'Release' }}
-        working-directory: ${{ env.SOURCE_ROOT }}
-        run: |
-          cpack --config build/CPackConfig.cmake -G DEB -C "$BUILD_TYPE"
-
-      - name: CPack (RPM)
-        if: ${{ runner.os == 'Linux' && matrix.enable-rpm && env.BUILD_TYPE == 'Release' }}
-        working-directory: ${{ env.SOURCE_ROOT }}
-        run: |
-          cpack --config build/CPackConfig.cmake -G RPM -C "$BUILD_TYPE"
-
-      - name: CPack (Source RPM)
-        if: ${{ runner.os == 'Linux' && matrix.enable-source-rpm && env.BUILD_TYPE == 'Release' }}
-        working-directory: ${{ env.SOURCE_ROOT }}
-        run: |
-          cpack --config build/CPackSourceConfig.cmake -G RPM
-
-      - name: Upload CPack artifacts
-        if: ${{ runner.os == 'Linux' && env.BUILD_TYPE == 'Release' && (matrix.enable-deb || matrix.enable-rpm || matrix.enable-source-rpm) }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: cpack-${{ matrix.artifact-name }}
-          path: |
-            ${{ env.SOURCE_ROOT }}/*.deb
-            ${{ env.SOURCE_ROOT }}/*.rpm
-
-      - name: Package (Linux AppImage)
-        if: ${{ runner.os == 'Linux' && matrix.enable-appimage && env.BUILD_TYPE == 'Release' }}
+      - name: Package (Linux)
+        if: ${{ runner.os == 'Linux' }}
         uses: ./.github/actions/package/linux
         with:
           version: ${{ steps.short-version.outputs.version }}
