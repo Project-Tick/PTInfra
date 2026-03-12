@@ -37,9 +37,11 @@ runs:
         BUILD_DIR: ${{ format('{0}/build', inputs.source-dir || github.workspace) }}
         INSTALL_DIR: ${{ format('{0}/install', inputs.source-dir || github.workspace) }}
       run: |
-        cmake --install ${{ env.BUILD_DIR }} --config ${{ inputs.build-type }}
-        touch ${{ env.INSTALL_DIR }}/manifest.txt
-        for l in $(find ${{ env.INSTALL_DIR }} -type f); do l=$(cygpath -u "$l"); l=${l#$(cygpath -u "${{ env.INSTALL_DIR }}")/}; echo $l; done >> ${{ env.INSTALL_DIR }}/manifest.txt
+        build_dir="$(cygpath -u "${BUILD_DIR}")"
+        install_dir="$(cygpath -u "${INSTALL_DIR}")"
+        cmake --install "$build_dir" --config ${{ inputs.build-type }}
+        touch "$install_dir/manifest.txt"
+        for l in $(find "$install_dir" -type f); do l=$(cygpath -u "$l"); l=${l#${install_dir}/}; echo $l; done >> "$install_dir/manifest.txt"
 
     - name: Package (MSVC)
       if: ${{ inputs.msystem == '' }}
@@ -78,9 +80,12 @@ runs:
         INSTALL_DIR: ${{ format('{0}/install', inputs.source-dir || github.workspace) }}
         INSTALL_PORTABLE_DIR: ${{ format('{0}/install-portable', inputs.source-dir || github.workspace) }}
       run: |
-        cp -r ${{ env.INSTALL_DIR }} ${{ env.INSTALL_PORTABLE_DIR }}  # cmake install on Windows is slow, let's just copy instead
-        cmake --install ${{ env.BUILD_DIR }} --config ${{ inputs.build-type }} --prefix ${{ env.INSTALL_PORTABLE_DIR }} --component portable
-        for l in $(find ${{ env.INSTALL_PORTABLE_DIR }} -type f); do l=$(cygpath -u "$l"); l=${l#$(cygpath -u "${{ env.INSTALL_PORTABLE_DIR }}")/}; echo $l; done >> ${{ env.INSTALL_PORTABLE_DIR }}/manifest.txt
+        build_dir="$(cygpath -u "${BUILD_DIR}")"
+        install_dir="$(cygpath -u "${INSTALL_DIR}")"
+        install_portable_dir="$(cygpath -u "${INSTALL_PORTABLE_DIR}")"
+        cp -r "$install_dir" "$install_portable_dir"  # cmake install on Windows is slow, let's just copy instead
+        cmake --install "$build_dir" --config ${{ inputs.build-type }} --prefix "$install_portable_dir" --component portable
+        for l in $(find "$install_portable_dir" -type f); do l=$(cygpath -u "$l"); l=${l#${install_portable_dir}/}; echo $l; done >> "$install_portable_dir/manifest.txt"
 
     - name: Package (MSVC, portable)
       if: ${{ inputs.msystem == '' }}
