@@ -32,7 +32,7 @@ permissions:
 
 concurrency:
   group: launcher-sync
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   SOURCE_REPOSITORY_URL: https://gitlab.com/project-tick/core/projt-launcher.git
