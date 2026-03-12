@@ -120,9 +120,10 @@ runs:
       shell: pwsh
       env:
         CODESIGN_CERT_PATH: ${{ github.workspace }}/codesign.pfx
+        INSTALLER_PATH: ${{ format('{0}/ProjTLauncher-Setup.exe', inputs.source-dir || github.workspace) }}
       run: |
           if (Get-Content $env:CODESIGN_CERT_PATH){
-            SignTool sign /fd sha256 /td sha256 /f $env:CODESIGN_CERT_PATH /p '${{ inputs.windows-codesign-password }}' /tr http://timestamp.digicert.com ProjTLauncher-Setup.exe
+            SignTool sign /fd sha256 /td sha256 /f $env:CODESIGN_CERT_PATH /p '${{ inputs.windows-codesign-password }}' /tr http://timestamp.digicert.com $env:INSTALLER_PATH
           } else {
             ":warning: Skipped code signing for Windows, as certificate was not present." >> $env:GITHUB_STEP_SUMMARY
           }
