@@ -286,16 +286,28 @@ jobs:
     steps:
       - name: Update repository variable
         env:
-          GH_TOKEN: ${{ github.token }}
+          DEFAULT_GH_TOKEN: ${{ github.token }}
+          REPO_VARIABLES_TOKEN: ${{ secrets.REPO_VARIABLES_TOKEN }}
           RELEASE_KIND: ${{ needs.inspect-upstream.outputs.release-kind }}
           STATE_VALUE: ${{ needs.inspect-upstream.outputs.state-value }}
           TAG_VARIABLE: ${{ env.LAST_TAG_VARIABLE }}
           COMMIT_VARIABLE: ${{ env.LAST_COMMIT_VARIABLE }}
         shell: bash
         run: |
+          if [[ -n "$REPO_VARIABLES_TOKEN" ]]; then
+            export GH_TOKEN="$REPO_VARIABLES_TOKEN"
+          else
+            export GH_TOKEN="$DEFAULT_GH_TOKEN"
+          fi
+
           variable_name="$COMMIT_VARIABLE"
           if [[ "$RELEASE_KIND" == "tag" ]]; then
             variable_name="$TAG_VARIABLE"
+          fi
+
+          if ! gh api "repos/${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::warning::Unable to authenticate GitHub CLI for repository variable update."
+            exit 0
           fi
 
           if gh api "repos/${GITHUB_REPOSITORY}/actions/variables/${variable_name}" >/dev/null 2>&1; then
@@ -306,10 +318,14 @@ jobs:
               -f name="$variable_name" \
               -f value="$STATE_VALUE"
           else
-            gh api \
+            create_output="$(gh api \
               --method POST \
               -H "Accept: application/vnd.github+json" \
               "repos/${GITHUB_REPOSITORY}/actions/variables" \
               -f name="$variable_name" \
-              -f value="$STATE_VALUE"
+              -f value="$STATE_VALUE" 2>&1)" || {
+                echo "::warning::Failed to update repository variable '${variable_name}'. Add REPO_VARIABLES_TOKEN secret with permission to manage Actions variables."
+                echo "$create_output"
+                exit 0
+              }
           fi
