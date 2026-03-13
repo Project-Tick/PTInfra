@@ -1,7 +1,6 @@
 name: Launcher Sync
 
 on:
-  push:
   schedule:
     - cron: '0 * * * *'
   workflow_dispatch:
@@ -37,10 +36,9 @@ concurrency:
 env:
   SOURCE_REPOSITORY_URL: https://gitlab.com/project-tick/core/projt-launcher.git
   SOURCE_DEFAULT_BRANCH: main
-  LAST_TAG_VARIABLE: LAST_PROJT_LAUNCHER_TAG
-  LAST_COMMIT_VARIABLE: LAST_PROJT_LAUNCHER_COMMIT
   TAG_REMOTE_ROOT: /var/www/ftp/Project-Tick/ProjT-Launcher/releases/download
   COMMIT_REMOTE_ROOT: /var/www/ftp/Project-Tick/ProjT-Launcher/releases/commitftp
+  REMOTE_STATE_FILE: /var/www/ftp/Project-Tick/ProjT-Launcher/.launcher-sync-state.env
 
 jobs:
   inspect-upstream:
@@ -57,6 +55,43 @@ jobs:
       - name: Checkout workflow repository
         uses: actions/checkout@v6
 
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          FTP_SSH_KEY: ${{ secrets.FTP_SSH_PRIVATE_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$FTP_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Trust deployment host
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_SSH_PORT || '22' }}
+        run: |
+          ssh-keyscan -p "$FTP_PORT" -H "$FTP_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Read remote sync state
+        id: remote-state
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PORT: ${{ secrets.FTP_SSH_PORT || '22' }}
+          STATE_FILE: ${{ env.REMOTE_STATE_FILE }}
+        run: |
+          state_content="$(
+            ssh -p "$FTP_PORT" "$FTP_USER@$FTP_HOST" "cat '$STATE_FILE' 2>/dev/null" || true
+          )"
+          last_tag="$(printf '%s\n' "$state_content" | awk -F= '$1=="LAST_TAG" {print substr($0, index($0,$2))}' | tail -n 1)"
+          last_commit="$(printf '%s\n' "$state_content" | awk -F= '$1=="LAST_COMMIT" {print substr($0, index($0,$2))}' | tail -n 1)"
+          {
+            echo "last_tag=$last_tag"
+            echo "last_commit=$last_commit"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Discover latest upstream refs
         id: discover
         shell: bash
@@ -68,8 +103,8 @@ jobs:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' }}
           REQUESTED_KIND: ${{ github.event.inputs.release-kind || 'auto' }}
           REQUESTED_REF: ${{ github.event.inputs.ref || '' }}
-          LAST_TAG: ${{ vars.LAST_PROJT_LAUNCHER_TAG }}
-          LAST_COMMIT: ${{ vars.LAST_PROJT_LAUNCHER_COMMIT }}
+          LAST_TAG: ${{ steps.remote-state.outputs.last_tag }}
+          LAST_COMMIT: ${{ steps.remote-state.outputs.last_commit }}
           LATEST_TAG: ${{ steps.discover.outputs.latest_tag }}
           LATEST_COMMIT: ${{ steps.discover.outputs.latest_commit }}
         shell: bash
@@ -146,6 +181,8 @@ jobs:
 
       - name: Summarize decision
         env:
+          SUMMARY_REMOTE_LAST_TAG: ${{ steps.remote-state.outputs.last_tag }}
+          SUMMARY_REMOTE_LAST_COMMIT: ${{ steps.remote-state.outputs.last_commit }}
           SUMMARY_LATEST_TAG: ${{ steps.discover.outputs.latest_tag }}
           SUMMARY_LATEST_COMMIT: ${{ steps.discover.outputs.latest_commit }}
           SUMMARY_BRANCH: ${{ env.SOURCE_DEFAULT_BRANCH }}
@@ -156,6 +193,8 @@ jobs:
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           ## Upstream inspection
+          - Remote last tag: ${SUMMARY_REMOTE_LAST_TAG:-none}
+          - Remote last commit: ${SUMMARY_REMOTE_LAST_COMMIT:-none}
           - Latest tag: ${SUMMARY_LATEST_TAG:-none}
           - Latest commit on ${SUMMARY_BRANCH:-unknown}: ${SUMMARY_LATEST_COMMIT:-none}
           - Selected kind: ${SUMMARY_RELEASE_KIND:-none}
@@ -275,57 +314,32 @@ jobs:
         run: |
           ssh -p "$FTP_PORT" "$FTP_USER@$FTP_HOST" "mkdir -p '$REMOTE_PATH'"
           ./.github/scripts/rsync-release-artifacts.sh artifacts "$FTP_HOST" "$FTP_USER" "$REMOTE_PATH" "$FTP_PORT"
-
-  update-state:
-    name: Update tracked ref
-    runs-on: ubuntu-latest
-    needs:
-      - inspect-upstream
-      - deploy
-    if: ${{ needs.inspect-upstream.outputs.should-build == 'true' && needs.deploy.result == 'success' }}
-    steps:
-      - name: Update repository variable
+      - name: Update remote sync state
+        shell: bash
         env:
-          DEFAULT_GH_TOKEN: ${{ github.token }}
-          REPO_VARIABLES_TOKEN: ${{ secrets.REPO_VARIABLES_TOKEN }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PORT: ${{ secrets.FTP_SSH_PORT || '22' }}
           RELEASE_KIND: ${{ needs.inspect-upstream.outputs.release-kind }}
           STATE_VALUE: ${{ needs.inspect-upstream.outputs.state-value }}
-          TAG_VARIABLE: ${{ env.LAST_TAG_VARIABLE }}
-          COMMIT_VARIABLE: ${{ env.LAST_COMMIT_VARIABLE }}
-        shell: bash
+          LATEST_TAG: ${{ needs.inspect-upstream.outputs.release-kind == 'tag' && needs.inspect-upstream.outputs.state-value || '' }}
+          LATEST_COMMIT: ${{ needs.inspect-upstream.outputs.release-kind == 'commit' && needs.inspect-upstream.outputs.state-value || '' }}
+          REMOTE_STATE_FILE_PATH: ${{ env.REMOTE_STATE_FILE }}
+          REMOTE_KNOWN_TAG: ${{ needs.inspect-upstream.outputs.release-kind == 'tag' && needs.inspect-upstream.outputs.state-value || needs.inspect-upstream.outputs.ref-name }}
         run: |
-          if [[ -n "$REPO_VARIABLES_TOKEN" ]]; then
-            export GH_TOKEN="$REPO_VARIABLES_TOKEN"
-          else
-            export GH_TOKEN="$DEFAULT_GH_TOKEN"
-          fi
+          current_state="$(
+            ssh -p "$FTP_PORT" "$FTP_USER@$FTP_HOST" "cat '$REMOTE_STATE_FILE_PATH' 2>/dev/null" || true
+          )"
+          current_last_tag="$(printf '%s\n' "$current_state" | awk -F= '$1=="LAST_TAG" {print substr($0, index($0,$2))}' | tail -n 1)"
+          current_last_commit="$(printf '%s\n' "$current_state" | awk -F= '$1=="LAST_COMMIT" {print substr($0, index($0,$2))}' | tail -n 1)"
 
-          variable_name="$COMMIT_VARIABLE"
           if [[ "$RELEASE_KIND" == "tag" ]]; then
-            variable_name="$TAG_VARIABLE"
+            current_last_tag="$STATE_VALUE"
+          elif [[ "$RELEASE_KIND" == "commit" ]]; then
+            current_last_commit="$STATE_VALUE"
           fi
 
-          if ! gh api "repos/${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "::warning::Unable to authenticate GitHub CLI for repository variable update."
-            exit 0
-          fi
-
-          if gh api "repos/${GITHUB_REPOSITORY}/actions/variables/${variable_name}" >/dev/null 2>&1; then
-            gh api \
-              --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/actions/variables/${variable_name}" \
-              -f name="$variable_name" \
-              -f value="$STATE_VALUE"
-          else
-            create_output="$(gh api \
-              --method POST \
-              -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/actions/variables" \
-              -f name="$variable_name" \
-              -f value="$STATE_VALUE" 2>&1)" || {
-                echo "::warning::Failed to update repository variable '${variable_name}'. Add REPO_VARIABLES_TOKEN secret with permission to manage Actions variables."
-                echo "$create_output"
-                exit 0
-              }
-          fi
+          ssh -p "$FTP_PORT" "$FTP_USER@$FTP_HOST" "cat > '$REMOTE_STATE_FILE_PATH'" <<EOF
+          LAST_TAG=${current_last_tag}
+          LAST_COMMIT=${current_last_commit}
+          EOF
