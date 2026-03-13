@@ -156,20 +156,6 @@ jobs:
             qt-architecture: win64_msvc2022_64
             qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport qt5compat
             qt-version: 6.10.2
-          - os: windows-2022
-            artifact-name: Windows-MSVC-2022
-            cmake-preset: windows_msvc
-            vcvars-arch: amd64
-            qt-architecture: win64_msvc2022_64
-            qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport qt5compat
-            qt-version: 6.10.2
-          - os: windows-2025
-            artifact-name: Windows-MSVC-2025
-            cmake-preset: windows_msvc
-            vcvars-arch: amd64
-            qt-architecture: win64_msvc2022_64
-            qt-modules: qtimageformats qtnetworkauth qtwebchannel qtwebengine qtpositioning qtserialport qt5compat
-            qt-version: 6.10.2
           - os: windows-11-arm
             artifact-name: Windows-MSVC-arm64
             cmake-preset: windows_msvc
@@ -178,17 +164,7 @@ jobs:
             qt-modules: qtimageformats qtnetworkauth qtpositioning qtserialport qt5compat
             qt-version: 6.10.2
           - os: windows-2022
-            artifact-name: Windows-MinGW-w64-2022
-            cmake-preset: windows_mingw
-            msystem: MINGW64
-            vcvars-arch: amd64_x86
-          - os: windows-2022
             artifact-name: Windows-MinGW-w64
-            cmake-preset: windows_mingw
-            msystem: MINGW64
-            vcvars-arch: amd64_x86
-          - os: windows-2025
-            artifact-name: Windows-MinGW-w64-2025
             cmake-preset: windows_mingw
             msystem: MINGW64
             vcvars-arch: amd64_x86
