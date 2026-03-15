@@ -260,8 +260,19 @@ jobs:
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.inspect-upstream.outputs.ref-name }}
+          SOURCE_REF: ${{ needs.inspect-upstream.outputs.build-ref }}
+          GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_KEY }}
+          GPG_KEY_ID: ${{ secrets.LINUX_GPG_ID }}
         run: |
-          ./.github/scripts/prepare-release-artifacts.sh artifacts "$RELEASE_VERSION" prepared
+          rm -rf source
+          git init source
+          cd source
+          git remote add origin "${SOURCE_REPOSITORY_URL}"
+          git fetch --depth 1 origin "${SOURCE_REF}"
+          git checkout --force FETCH_HEAD
+          git submodule update --init --recursive --depth 1
+          cd ..
+          ./.github/scripts/prepare-release-artifacts.sh artifacts "$RELEASE_VERSION" prepared source
 
       - name: Upload prepared release bundle
         uses: actions/upload-artifact@v6
