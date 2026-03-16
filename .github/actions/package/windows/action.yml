@@ -149,4 +149,4 @@ runs:
       uses: actions/upload-artifact@v5
       with:
         name: ProjTLauncher-${{ inputs.artifact-name }}-Setup-${{ inputs.version }}-${{ inputs.build-type }}
-        path: ${{ format('{0}/install/ProjTLauncher-Setup.exe', inputs.source-dir || github.workspace) }}
+        path: ${{ format('{0}/ProjTLauncher-Setup.exe', inputs.source-dir || github.workspace) }}

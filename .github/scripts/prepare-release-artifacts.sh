@@ -111,7 +111,7 @@ for dir in "$artifacts_dir"/*; do
       esac
       exe_files=("$dir"/*.exe)
       if [[ "$artifact_name" == *"-Setup-"* ]] && [[ -f "${exe_files[0]:-}" ]]; then
-        cp "${exe_files[0]}" "$output_dir/${base_name}.exe"
+        cp "${exe_files[0]}" "$output_dir/${base_name}-${release_version}.exe"
       else
         zip_dir_contents "$dir" "$PWD/$output_dir/${base_name}-${release_version}.zip"
       fi
