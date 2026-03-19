@@ -1,0 +1,187 @@
+name: Launcher Nightly
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  packages: write
+
+concurrency:
+  group: launcher-nightly
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPOSITORY_URL: https://gitlab.com/project-tick/core/projt-launcher.git
+  SOURCE_DEFAULT_BRANCH: main
+  NIGHTLY_REMOTE_ROOT: /var/www/ftp/Project-Tick/ProjT-Launcher/releases/nightly
+
+jobs:
+  inspect-upstream:
+    name: Resolve nightly ref
+    runs-on: ubuntu-latest
+    outputs:
+      build-ref: ${{ steps.meta.outputs.build_ref }}
+      nightly-version: ${{ steps.meta.outputs.nightly_version }}
+      remote-path: ${{ steps.meta.outputs.remote_path }}
+    steps:
+      - name: Checkout workflow repository
+        uses: actions/checkout@v6
+
+      - name: Discover latest upstream refs
+        id: discover
+        shell: bash
+        run: ./.github/scripts/discover-projt-launcher-ref.sh "${SOURCE_REPOSITORY_URL}" "${SOURCE_DEFAULT_BRANCH}"
+
+      - name: Compute nightly metadata
+        id: meta
+        shell: bash
+        env:
+          LATEST_COMMIT: ${{ steps.discover.outputs.latest_commit }}
+          REMOTE_ROOT: ${{ env.NIGHTLY_REMOTE_ROOT }}
+        run: |
+          short_sha="$(printf '%s' "$LATEST_COMMIT" | cut -c1-12)"
+          nightly_version="nightly-$(date -u +%Y%m%d)-${short_sha}"
+          remote_path="${REMOTE_ROOT}/${nightly_version}"
+
+          {
+            echo "build_ref=$LATEST_COMMIT"
+            echo "nightly_version=$nightly_version"
+            echo "remote_path=$remote_path"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize nightly target
+        shell: bash
+        env:
+          NIGHTLY_VERSION: ${{ steps.meta.outputs.nightly_version }}
+          LATEST_COMMIT: ${{ steps.discover.outputs.latest_commit }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Nightly target
+          - Version: ${NIGHTLY_VERSION}
+          - Commit: ${LATEST_COMMIT}
+          EOF
+
+  build:
+    name: Build nightly release
+    needs: inspect-upstream
+    uses: ./.github/workflows/ci-launcher.yml
+    with:
+      build-type: Release
+      source-repository-url: https://gitlab.com/project-tick/core/projt-launcher.git
+      source-directory: source
+      ref: ${{ needs.inspect-upstream.outputs.build-ref }}
+    secrets: inherit
+
+  prepare-release:
+    name: Prepare nightly artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - inspect-upstream
+      - build
+    steps:
+      - name: Checkout workflow repository
+        uses: actions/checkout@v6
+
+      - name: Free disk space (Linux)
+        shell: bash
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          SUDO=""
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          fi
+          $SUDO swapoff -a || true
+          $SUDO rm -rf /swapfile || true
+          $SUDO rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/share/swift /usr/local/.ghcup || true
+          $SUDO rm -rf /opt/hostedtoolcache/CodeQL || true
+          $SUDO rm -rf /usr/local/share/boost /usr/local/share/powershell || true
+          $SUDO apt-get clean || true
+          $SUDO rm -rf /var/lib/apt/lists/* || true
+          echo "Disk usage after cleanup:"
+          df -h
+
+      - name: Download packaged release artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: ProjTLauncher-*
+          path: artifacts
+
+      - name: Download Linux package artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: cpack-*
+          path: artifacts
+
+      - name: Prepare release bundle
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.inspect-upstream.outputs.nightly-version }}
+          SOURCE_REF: ${{ needs.inspect-upstream.outputs.build-ref }}
+          GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_KEY }}
+          GPG_KEY_ID: ${{ secrets.LINUX_GPG_ID }}
+        run: |
+          rm -rf source
+          git init source
+          cd source
+          git remote add origin "${SOURCE_REPOSITORY_URL}"
+          git fetch --depth 1 origin "${SOURCE_REF}"
+          git checkout --force FETCH_HEAD
+          git submodule update --init --recursive --depth 1
+          cd ..
+          ./.github/scripts/prepare-release-artifacts.sh artifacts "$RELEASE_VERSION" prepared source
+
+      - name: Upload prepared nightly bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: prepared-nightly-${{ needs.inspect-upstream.outputs.nightly-version }}
+          path: prepared/
+
+  deploy:
+    name: Deploy nightly artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - inspect-upstream
+      - prepare-release
+    steps:
+      - name: Checkout workflow repository
+        uses: actions/checkout@v6
+
+      - name: Download prepared nightly bundle
+        uses: actions/download-artifact@v6
+        with:
+          name: prepared-nightly-${{ needs.inspect-upstream.outputs.nightly-version }}
+          path: artifacts
+
+      - name: Prepare SSH key
+        shell: bash
+        env:
+          FTP_SSH_KEY: ${{ secrets.FTP_SSH_PRIVATE_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$FTP_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Trust deployment host
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_SSH_PORT || '22' }}
+        run: |
+          ssh-keyscan -p "$FTP_PORT" -H "$FTP_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Rsync nightly artifacts to FTP server
+        shell: bash
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PORT: ${{ secrets.FTP_SSH_PORT || '22' }}
+          REMOTE_PATH: ${{ needs.inspect-upstream.outputs.remote-path }}
+        run: |
+          ssh -p "$FTP_PORT" "$FTP_USER@$FTP_HOST" "mkdir -p '$REMOTE_PATH'"
+          ./.github/scripts/rsync-release-artifacts.sh artifacts "$FTP_HOST" "$FTP_USER" "$REMOTE_PATH" "$FTP_PORT"
